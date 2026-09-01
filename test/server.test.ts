@@ -167,18 +167,17 @@ describe("local server bookmarks API", () => {
     `;
     const imageBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
+    const responseFactories: Record<string, () => Response> = {
+      "https://example.com/ogp-page": () =>
+        new Response(pageHtml, { headers: { "content-type": "text/html" } }),
+      "https://example.com/some-image.png": () =>
+        new Response(imageBytes, { headers: { "content-type": "image/png", "content-length": "8" } })
+    };
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: RequestInfo | URL) => {
-        const urlStr = url.toString();
-        if (urlStr === "https://example.com/ogp-page") {
-          return new Response(pageHtml, { headers: { "content-type": "text/html" } });
-        }
-        if (urlStr === "https://example.com/some-image.png") {
-          return new Response(imageBytes, { headers: { "content-type": "image/png", "content-length": "8" } });
-        }
-        return new Response(null, { status: 404 });
-      })
+      vi.fn(async (url: RequestInfo | URL) =>
+        (responseFactories[url.toString()] ?? (() => new Response(null, { status: 404 })))()
+      )
     );
 
     const app = createTestApp();
@@ -212,21 +211,19 @@ describe("local server bookmarks API", () => {
   });
 
   it("creates a bookmark successfully even if OGP image download fails", async () => {
+    const responseFactories: Record<string, () => Response> = {
+      "https://example.com/fail-ogp": () =>
+        new Response(
+          `<html><head><meta property="og:image" content="https://example.com/broken.png" /></head></html>`,
+          { headers: { "content-type": "text/html" } }
+        ),
+      "https://example.com/broken.png": () => new Response(null, { status: 500 })
+    };
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: RequestInfo | URL) => {
-        const urlStr = url.toString();
-        if (urlStr === "https://example.com/fail-ogp") {
-          return new Response(
-            `<html><head><meta property="og:image" content="https://example.com/broken.png" /></head></html>`,
-            { headers: { "content-type": "text/html" } }
-          );
-        }
-        if (urlStr === "https://example.com/broken.png") {
-          return new Response(null, { status: 500 });
-        }
-        return new Response(null, { status: 404 });
-      })
+      vi.fn(async (url: RequestInfo | URL) =>
+        (responseFactories[url.toString()] ?? (() => new Response(null, { status: 404 })))()
+      )
     );
 
     const app = createTestApp();

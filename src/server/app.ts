@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import type { BookmarkDatabase } from "./db";
 import type { CreateBookmarkRequest, UpdateBookmarkRequest } from "../shared/bookmarks";
 import { fetchPageTitle, normalizeUrl } from "./title";
-import { storeOgpImage } from "./storage";
+import { removeOgpImage, storeOgpImage } from "./storage";
 
 export type AppDependencies = {
   db: BookmarkDatabase;
@@ -110,16 +110,19 @@ export const createApp = ({ db, storageDir }: AppDependencies) => {
     const title = (await fetchPageTitle(url)) ?? url;
     const ogpImageUrl = await storeOgpImage(url, storageDir);
 
+    let bookmark;
     try {
-      const bookmark = db.createBookmark({ url, title, tags, memo, ogpImageUrl });
-      return c.json({ bookmark }, 201);
+      bookmark = db.createBookmark({ url, title, tags, memo, ogpImageUrl });
     } catch (error) {
+      removeOgpImage(ogpImageUrl, storageDir);
       if (isUniqueError(error)) {
         return c.json({ error: "This URL is already bookmarked." }, 409);
       }
 
       return c.json({ error: "Failed to create bookmark." }, 500);
     }
+
+    return c.json({ bookmark }, 201);
   });
 
   app.put("/api/bookmarks/:id", async (c) => {
@@ -153,20 +156,27 @@ export const createApp = ({ db, storageDir }: AppDependencies) => {
     const title = (await fetchPageTitle(url)) ?? url;
     const ogpImageUrl = await storeOgpImage(url, storageDir);
 
+    let updateResult;
     try {
-      const bookmark = db.updateBookmark(id, { url, title, tags, memo, ogpImageUrl });
-      if (!bookmark) {
-        return c.json({ error: "Bookmark not found." }, 404);
-      }
-
-      return c.json({ bookmark });
+      updateResult = db.updateBookmark(id, { url, title, tags, memo, ogpImageUrl });
     } catch (error) {
+      removeOgpImage(ogpImageUrl, storageDir);
       if (isUniqueError(error)) {
         return c.json({ error: "This URL is already bookmarked." }, 409);
       }
 
       return c.json({ error: "Failed to update bookmark." }, 500);
     }
+
+    if (!updateResult) {
+      removeOgpImage(ogpImageUrl, storageDir);
+      return c.json({ error: "Bookmark not found." }, 404);
+    }
+
+    if (updateResult.previousOgpImageUrl !== ogpImageUrl) {
+      removeOgpImage(updateResult.previousOgpImageUrl, storageDir);
+    }
+    return c.json({ bookmark: updateResult.bookmark });
   });
 
   app.delete("/api/bookmarks/:id", (c) => {
@@ -175,10 +185,12 @@ export const createApp = ({ db, storageDir }: AppDependencies) => {
       return c.json({ error: "Bookmark not found." }, 404);
     }
 
-    if (!db.deleteBookmark(id)) {
+    const ogpImageUrl = db.deleteBookmark(id);
+    if (ogpImageUrl === null) {
       return c.json({ error: "Bookmark not found." }, 404);
     }
 
+    removeOgpImage(ogpImageUrl, storageDir);
     return c.body(null, 204);
   });
 

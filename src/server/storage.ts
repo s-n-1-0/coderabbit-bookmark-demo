@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fetchWithTimeout, readLimitedBody } from "./fetch";
@@ -13,6 +13,19 @@ const ALLOWED_MIME_TYPES: Record<string, string> = {
 };
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+
+export const removeOgpImage = (ogpImageUrl: string, storageDir: string): void => {
+  const match = /^\/ogp\/([a-zA-Z0-9][a-zA-Z0-9._-]*)$/.exec(ogpImageUrl);
+  if (!match) {
+    return;
+  }
+
+  try {
+    unlinkSync(join(storageDir, "ogp", match[1]));
+  } catch {
+    // Image cleanup is best-effort and must not change the persisted bookmark result.
+  }
+};
 
 /**
  * ページの OGP 画像を取得し、ローカルの指定されたディレクトリに保存します。
