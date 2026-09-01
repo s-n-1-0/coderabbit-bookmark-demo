@@ -80,16 +80,11 @@ describe("storeOgpImage", () => {
       headers: { "content-type": "image/png", "content-length": "4" }
     });
 
-    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
-      const urlStr = url.toString();
-      if (urlStr === "https://example.com/page") {
-        return htmlResponse;
-      }
-      if (urlStr === "https://example.com/img.png") {
-        return imageResponse;
-      }
-      throw new Error(`Unexpected url: ${urlStr}`);
-    });
+    const responseFactories: Record<string, () => Response> = {
+      "https://example.com/page": () => htmlResponse,
+      "https://example.com/img.png": () => imageResponse
+    };
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => responseFactories[url.toString()]());
 
     const result = await storeOgpImage("https://example.com/page", tempStorageDir, fetcher as typeof fetch);
     
@@ -98,6 +93,14 @@ describe("storeOgpImage", () => {
     const localPath = join(tempStorageDir, "ogp", savedFilename);
     expect(existsSync(localPath)).toBe(true);
     expect(readFileSync(localPath)).toEqual(Buffer.from(imageBytes));
+  });
+
+  it("returns empty string if the fetcher rejects", async () => {
+    const fetcher = vi.fn().mockRejectedValue(new Error("Network error"));
+
+    await expect(
+      storeOgpImage("https://example.com/page", tempStorageDir, fetcher as typeof fetch)
+    ).resolves.toBe("");
   });
 
   it("returns empty string if content-type is not text/html", async () => {

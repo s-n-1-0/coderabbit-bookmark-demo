@@ -357,7 +357,8 @@ h1 {
     align-items: stretch;
   }
 
-  .bookmark-item {
+  .bookmark-item,
+  .bookmark-item:has(.bookmark-thumb) {
     grid-template-columns: minmax(0, 1fr);
   }
 

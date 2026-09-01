@@ -35,6 +35,11 @@ export type SearchFilter = {
   bindings: string[];
 };
 
+export type BookmarkUpdateResult = {
+  bookmark: Bookmark;
+  previousOgpImageUrl: string;
+};
+
 const toBookmark = (row: BookmarkRow): Bookmark => ({
   id: row.id,
   url: row.url,
@@ -124,7 +129,14 @@ export class BookmarkDatabase {
     return toBookmark(rowToBookmarkRow(row));
   }
 
-  updateBookmark(id: number, input: BookmarkInput): Bookmark | null {
+  updateBookmark(id: number, input: BookmarkInput): BookmarkUpdateResult | null {
+    const previous = this.db
+      .prepare("SELECT ogp_image_url FROM bookmarks WHERE id = ?")
+      .get(id) as { ogp_image_url: string } | undefined;
+    if (!previous) {
+      return null;
+    }
+
     const now = new Date().toISOString();
     const row = this.db
       .prepare(
@@ -132,12 +144,19 @@ export class BookmarkDatabase {
       )
       .get(input.url, input.title, input.tags, input.memo, input.ogpImageUrl, now, id);
 
-    return row ? toBookmark(rowToBookmarkRow(row)) : null;
+    return row
+      ? {
+          bookmark: toBookmark(rowToBookmarkRow(row)),
+          previousOgpImageUrl: previous.ogp_image_url
+        }
+      : null;
   }
 
-  deleteBookmark(id: number): boolean {
-    const result = this.db.prepare("DELETE FROM bookmarks WHERE id = ?").run(id);
-    return result.changes > 0;
+  deleteBookmark(id: number): string | null {
+    const row = this.db
+      .prepare("DELETE FROM bookmarks WHERE id = ? RETURNING ogp_image_url")
+      .get(id) as { ogp_image_url: string } | undefined;
+    return row?.ogp_image_url ?? null;
   }
 
   close() {
